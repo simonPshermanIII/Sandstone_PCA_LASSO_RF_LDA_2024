@@ -1,0 +1,1581 @@
+---
+title: "Geoarchaeology Sandstone Pub 2024"
+author: Simon P. Sherman III (Principal Investigator at Environmental Solutions
+  and Innovations, Inc. [ESI, Inc.])
+date: "1/2/2024"
+additional authors: Dr. Youngsang Kwon (Department of Earth Sciences, University of
+  Memphis)
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ChemoSpec)
+library(ChemoSpecUtils)
+library(tidyr)
+library(dplyr)
+library(amap)
+library(robustbase)
+library(data.table)
+library(R.utils)
+library(Polychrome)
+library(readr)
+library(ggplot2)
+library(scatterplot3d)
+```
+# set wd below
+```{r}
+setwd("~/Desktop/Geoarch Sandstone In Revision")
+```
+# upload df
+```{r}
+df <- read.csv("inland_t.csv")
+```
+# upload colorpalette with adequate (n=X) of groups
+```{r}
+color6 <- Polychrome::palette36.colors(n = 27)
+```
+
+```{r}
+inland_df <- df %>%
+mutate(CODE_NEW = case_when(
+startsWith(code, "PW_") ~ "PW",
+startsWith(code, "HQ_") ~ "HQ",
+startsWith(code, "PSS_") ~ "PSS",
+startsWith(code, "JSS_") ~ "JSS",
+startsWith(code, "MSS1_") ~ "MSS1",    
+startsWith(code, "MSS2_") ~ "MSS2",
+startsWith(code, "HMCSS_") ~ "HMCSS",
+startsWith(code, "MER_") ~ "MER",
+startsWith(code, "AGATE_") ~ "AGATE" ))
+```
+##Relocate CODE Below
+```{r}
+inland_df <- inland_df %>% 
+  mutate(CODE = paste(CODE_NEW, FID, sep = '_')) %>%
+  relocate(CODE)
+ncol(inland_df)
+```
+##Line below removes excess columns
+```{r}
+inland_df2 <- inland_df[,c(1,6:ncol(inland_df)-1)]
+```
+
+```{r}
+inland_df_trans <- as.data.frame(t(inland_df2))
+```
+##save file via using readr package 
+```{r}
+write.csv(inland_df_trans, file = "inland_df_trans.csv", row.names = TRUE)
+```
+
+#manually clean up the row X351 to 351 and round to first digit
+# still first rows V1, V2 etc. need to delete them later
+
+#import after excel manipulation
+#first import cleaned version on inland_df_trans then remove outliers
+```{r}
+inland_df_trans <- read.csv("inland_df_trans.csv")
+
+color6 <- Polychrome::palette36.colors(n = 9)
+#ChemoSpec is particular so be sure to set number of groups to match colors
+inlandSpec_for_outliers <- matrix2SpectraObject(
+     gr.crit = c("PW","HQ","PSS","JSS","MSS1","MSS2","HMCSS","MER","AGATE"),
+gr.cols = color6,
+freq.unit = "micrometer",
+int.unit = "Reflectance",
+descrip = "Artifacts",
+in.file = "inland_df_trans.csv",
+out.file = "inlandSpec2",
+sep = ","
+)
+
+
+c_res_for_outliers <- c_pcaSpectra(inlandSpec_for_outliers,
+                                   choice = "noscale")
+
+```
+#ChemoSpec is particular so be sure to set number of groups to match colors
+
+#Plot PCA Scores
+```{r}
+plotScores(inlandSpec_for_outliers, c_res_for_outliers,
+           main = myt,
+           pcs = c(1,2),
+           ellipse = "rob",
+           tol = 0.01)
+```
+##Right now the model is at 77% of the var encompassed by PC1 and PC2. Lets try to improve by removing outliers below
+```{r}
+outlierIndex <- c(which(abs(c_res_for_outliers$x[,1] - mean(c_res_for_outliers$x[,1])) > (6 * sd(c_res_for_outliers$x[,1]))),
+                  + which(abs(c_res_for_outliers$x[,2] - mean(c_res_for_outliers$x[,2])) > (6 * sd(c_res_for_outliers$x[,2]))))
+```
+#all nine groups are encompassed using 6 * sd away from the mean for each PCA sample #s 114 and 238 were removed
+##For next steps you need to repeat and see how much the PCs Improve 
+
+#outlierIndex +1 will remove the number or sample 114 (Jackson Sandstone [JSS] AL) and 238 (Meridian Sandstone Tallahatta[MER] MS)
+```{r}
+outlierIndex1 <- outlierIndex +1
+inland_df_trans_rm_outliers <- inland_df_trans[,-c(outlierIndex1)] 
+```
+#save .csv below of new file with removed samples
+```{r}
+write.csv(inland_df_trans_rm_outliers, file = "inland_df_trans_rm_outliers.csv", row.names = TRUE)
+```
+#be sure to check session file folder and delete added column on .csv file then save and rewrite or reupload .csv
+```{r}
+inlandSpec2 <- matrix2SpectraObject(
+  gr.crit = c("PW","HQ","PSS","JSS","MSS1","MSS2","HMCSS","MER","AGATE"),
+  gr.cols = color6,
+  freq.unit = "micrometer",
+  int.unit = "Reflectance",
+  descrip = "Artifacts",
+  in.file = "inland_df_trans_rm_outliers.csv",
+  out.file = "inlandSpec2",
+  sep = "," )
+
+c_res <- c_pcaSpectra(inlandSpec2,
+                      choice = "noscale")
+
+plotScores(inlandSpec2, c_res,
+           main = myt,
+           pcs = c(1,2),
+           ellipse = "rob",
+           tol = 0.01)
+```
+# now that the two are removed the pca % encompassed has decreased
+#now time for individual outlier ID
+
+##note inland_df_trans.csv is the original document shoulde you want 77% accuracies
+```{r}
+df<- read.csv("inland_df_trans_rm_outliers.csv")
+start_chars <- c("PW","HQ","PSS","JSS","MSS1","MSS2","HMCSS","MER","AGATE")
+
+for (start_char in start_chars) {
+  # Identify column names that start with the specified character
+  matching_columns <- grep(paste0("^", start_char), names(df), value = TRUE)
+  
+  # Subset the dataframe by selecting the matching columns
+  subset_data <- df[, matching_columns, drop = FALSE]
+  
+  # Write the subset data to a CSV file
+  write.csv(subset_data, file = paste0(start_char, ".csv"))
+}
+```
+#Below will create separate .csv using dplyr
+```{r}
+for (start_char in start_chars) {
+  # Subset the dataframe by the column names that start with the character
+  subset_data <- df %>% select(starts_with(start_char))
+  write.csv(subset_data, paste0(start_char,".csv"))
+}
+```
+#First PCA by individual group.In this case,we have 9 groups abbreviated and had sep .csv files
+#Example:  c("PW","HQ","PSS","JSS","MSS1","MSS2","HMCSS","MER","AGATE")
+
+#first group (Group 1) is PW for petrified wood
+```{r}
+PCAoutliers <- matrix2SpectraObject(
+ gr.crit = c("PW"), #this line to change
+ gr.cols = color6[3],
+ freq.unit = "micrometer",
+ int.unit = "Reflectance",
+ descrip = "Artifacts",
+ in.file = "PW.csv", #this line to change
+ out.file = "inlandSpec",
+ sep = ",")
+
+#create and view the actual PCA
+
+c_res_for_outliers <- c_pcaSpectra(PCAoutliers,
+                                   choice = "noscale")
+c_res_for_outliers
+
+#Plot scores
+plotScores(PCAoutliers, c_res_for_outliers,
+           main = myt,
+           pcs = c(1,2),
+           ellipse = "rob",
+           tol = 0.01)
+```
+### So now we know petrified woods variablitiy based on 34 samples is 83% encompassed by first two PCAs 
+## lets check out the different variability by analyzing outliers using arbitrary thresholds in the PCA.
+#Common to use the max(6 Standard Deviations from the Mean), and then count down to 1 SD from mean (Extreme)
+
+#Below create threshold (Example 6 Std.devs from mean)
+```{r}
+threshold1 <- 6 * sd(c_res_for_outliers$x[, 1])
+threshold2 <- 6 * sd(c_res_for_outliers$x[, 2])
+```
+## Thresholds 6 SDs from mean for just petrified wood (AL)
+#Threshold1 is PCA 1 (x axis) and is 0.0062190287067612
+#Threshold2 is PCA 2 (y axis) and is 0.00174052156756748
+
+```{r}
+threshold1
+
+threshold2
+```
+#combine thresholds for first 2 PCAs (2-Dimension) using maximum threshold using 6 Sds from mean
+```{r}
+threshold <- max(threshold1, threshold2)
+```
+
+```{r}
+p<- plotScores(PCAoutliers, c_res_for_outliers,
+            main = myt,
+            pcs = c(1,2),
+            ellipse = "rob",
+            tol = 0.01)
+
+p <- p + geom_hline(yintercept = threshold, linetype = "dashed", color = "red") +
+ geom_vline(xintercept = threshold, linetype = "dashed", color = "red") +
+ ggtitle("Petrified Wood [PW] Outliers") +
+ theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+print(p)
+```
+
+#It appears there is nothing outside the line boundaries visually so we do not have any additional outliers to remove from the sample
+
+#We will continue to pluck out additional outliers from each of the other nine (now 8) groups
+#Next geo. group up is Hattiesburg Orthoquartzite, or sedimentary quartz sandstone (per reviewer #2)
+```{r}
+PCAoutliers <- matrix2SpectraObject(
+ gr.crit = c("HQ"), #this line to change
+ gr.cols = color6[3],
+ freq.unit = "micrometer",
+ int.unit = "Reflectance",
+ descrip = "Artifacts",
+ in.file = "HQ.csv", #this line to change
+ out.file = "inlandSpec",
+ sep = ",")
+
+c_res_for_outliers <- c_pcaSpectra(PCAoutliers,
+                                   choice = "noscale")
+c_res_for_outliers
+
+#Plot scores
+plotScores(PCAoutliers, c_res_for_outliers,
+           main = myt,
+           pcs = c(1,2),
+           ellipse = "rob",
+           tol = 0.01)
+```
+#We see that 81.8 (~82%) of the variability based on first 2 PCs for the second group (group 2) : Hattiesburg Quartzite (orthoquartzite)
+# Lets look for additional outliers using 6 SDs from mean
+```{r}
+threshold1 <- 6 * sd(c_res_for_outliers$x[, 1])
+threshold2 <- 6 * sd(c_res_for_outliers$x[, 2])
+
+threshold <- max(threshold1, threshold2)
+```
+#look at thresholds for second group HQ
+```{r}
+threshold1
+threshold2
+threshold <- max(threshold1, threshold2)
+```
+#look at visual boundaries for outliers using 6 SDs from mean
+```{r}
+p<- plotScores(PCAoutliers, c_res_for_outliers,
+            main = myt,
+            pcs = c(1,2),
+            ellipse = "rob",
+            tol = 0.01)
+
+p <- p + geom_hline(yintercept = threshold, linetype = "dashed", color = "red") +
+ geom_vline(xintercept = threshold, linetype = "dashed", color = "red") +
+ ggtitle("Hattiesburg Quartzite [HQ]") +
+ theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+print(p)
+```
+#Doesnt appear to be any additional outliers for HQ
+# on to the next group and so forth...
+
+#Group 3 : PSS
+```{r}
+PCAoutliers <- matrix2SpectraObject(
+ gr.crit = c("PSS"), #this line to change
+ gr.cols = color6[3], #kept red for transparency
+ freq.unit = "micrometer",
+ int.unit = "Reflectance",
+ descrip = "Artifacts",
+ in.file = "PSS.csv", #this line to change
+ out.file = "inlandSpec",
+ sep = ",")
+
+c_res_for_outliers <- c_pcaSpectra(PCAoutliers,
+                                   choice = "noscale")
+c_res_for_outliers
+
+#Establish threshold for outliers
+
+threshold1 <- 6 * sd(c_res_for_outliers$x[, 1])
+threshold2 <- 6 * sd(c_res_for_outliers$x[, 2])
+
+threshold <- max(threshold1, threshold2)
+
+#Plot scores again with thresholds
+p<- plotScores(PCAoutliers, c_res_for_outliers,
+            main = myt,
+            pcs = c(1,2),
+            ellipse = "rob",
+            tol = 0.01)
+
+p <- p + geom_hline(yintercept = threshold, linetype = "dashed", color = "red") +
+ geom_vline(xintercept = threshold, linetype = "dashed", color = "red") +
+ ggtitle("Peterman Sandstone - Tallahatta [PSS]") +
+ theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+print(p)
+
+```
+
+#Group 4 : JSS
+```{r}
+PCAoutliers <- matrix2SpectraObject(
+ gr.crit = c("JSS"), #this line to change
+ gr.cols = color6[3], #kept red for transparency
+ freq.unit = "micrometer",
+ int.unit = "Reflectance",
+ descrip = "Artifacts",
+ in.file = "JSS.csv", #this line to change
+ out.file = "inlandSpec",
+ sep = ",")
+
+c_res_for_outliers <- c_pcaSpectra(PCAoutliers,
+                                   choice = "noscale")
+c_res_for_outliers
+
+#Establish threshold for outliers
+
+threshold1 <- 6 * sd(c_res_for_outliers$x[, 1])
+threshold2 <- 6 * sd(c_res_for_outliers$x[, 2])
+
+threshold <- max(threshold1, threshold2)
+
+#Plot scores again with thresholds
+p<- plotScores(PCAoutliers, c_res_for_outliers,
+            main = myt,
+            pcs = c(1,2),
+            ellipse = "rob",
+            tol = 0.01)
+
+p <- p + geom_hline(yintercept = threshold, linetype = "dashed", color = "red") +
+ geom_vline(xintercept = threshold, linetype = "dashed", color = "red") +
+ ggtitle("Jackson Sandstone - Tallahatta [JSS]") +
+ theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+print(p)
+```
+
+Group 5 : MSS1
+```{r}
+PCAoutliers <- matrix2SpectraObject(
+ gr.crit = c("MSS1"), #this line to change
+ gr.cols = color6[3], #kept red for transparency
+ freq.unit = "micrometer",
+ int.unit = "Reflectance",
+ descrip = "Artifacts",
+ in.file = "MSS1.csv", #this line to change
+ out.file = "inlandSpec",
+ sep = ",")
+
+c_res_for_outliers <- c_pcaSpectra(PCAoutliers,
+                                   choice = "noscale")
+c_res_for_outliers
+
+#Establish threshold for outliers
+
+threshold1 <- 6 * sd(c_res_for_outliers$x[, 1])
+threshold2 <- 6 * sd(c_res_for_outliers$x[, 2])
+
+threshold <- max(threshold1, threshold2)
+
+#Plot scores again with thresholds
+p<- plotScores(PCAoutliers, c_res_for_outliers,
+            main = myt,
+            pcs = c(1,2),
+            ellipse = "rob",
+            tol = 0.01)
+
+p <- p + geom_hline(yintercept = threshold, linetype = "dashed", color = "red") +
+ geom_vline(xintercept = threshold, linetype = "dashed", color = "red") +
+ ggtitle("Monroe Sandstone 1 - Tallahatta [MSS1]") +
+ theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+print(p)
+```
+
+Group 6 : MSS2
+```{r}
+PCAoutliers <- matrix2SpectraObject(
+ gr.crit = c("MSS2"), #this line to change
+ gr.cols = color6[3], #kept red for transparency
+ freq.unit = "micrometer",
+ int.unit = "Reflectance",
+ descrip = "Artifacts",
+ in.file = "MSS2.csv", #this line to change
+ out.file = "inlandSpec",
+ sep = ",")
+
+c_res_for_outliers <- c_pcaSpectra(PCAoutliers,
+                                   choice = "noscale")
+c_res_for_outliers
+
+#Establish threshold for outliers
+
+threshold1 <- 6 * sd(c_res_for_outliers$x[, 1])
+threshold2 <- 6 * sd(c_res_for_outliers$x[, 2])
+
+threshold <- max(threshold1, threshold2)
+
+#Plot scores again with thresholds
+p<- plotScores(PCAoutliers, c_res_for_outliers,
+            main = myt,
+            pcs = c(1,2),
+            ellipse = "rob",
+            tol = 0.01)
+
+p <- p + geom_hline(yintercept = threshold, linetype = "dashed", color = "red") +
+ geom_vline(xintercept = threshold, linetype = "dashed", color = "red") +
+ ggtitle("Monroe Sandstone 2 - Tallahatta [MSS2]") +
+ theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+print(p)
+```
+
+Group 7 : HMCSS
+```{r}
+PCAoutliers <- matrix2SpectraObject(
+ gr.crit = c("HMCSS"), #this line to change
+ gr.cols = color6[3], #kept red for transparency
+ freq.unit = "micrometer",
+ int.unit = "Reflectance",
+ descrip = "Artifacts",
+ in.file = "HMCSS.csv", #this line to change
+ out.file = "inlandSpec",
+ sep = ",")
+
+c_res_for_outliers <- c_pcaSpectra(PCAoutliers,
+                                   choice = "noscale")
+c_res_for_outliers
+
+#Establish threshold for outliers
+
+threshold1 <- 6 * sd(c_res_for_outliers$x[, 1])
+threshold2 <- 6 * sd(c_res_for_outliers$x[, 2])
+
+threshold <- max(threshold1, threshold2)
+
+#Plot scores again with thresholds
+p<- plotScores(PCAoutliers, c_res_for_outliers,
+            main = myt,
+            pcs = c(1,2),
+            ellipse = "rob",
+            tol = 0.01)
+
+p <- p + geom_hline(yintercept = threshold, linetype = "dashed", color = "red") +
+ geom_vline(xintercept = threshold, linetype = "dashed", color = "red") +
+ ggtitle("Holly Mill Creek Sandstone - Tallahatta [HMCSS]") +
+ theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+print(p)
+```
+
+Group 8 : MER
+```{r}
+PCAoutliers <- matrix2SpectraObject(
+ gr.crit = c("MER"), #this line to change
+ gr.cols = color6[3], #kept red for transparency
+ freq.unit = "micrometer",
+ int.unit = "Reflectance",
+ descrip = "Artifacts",
+ in.file = "MER.csv", #this line to change
+ out.file = "inlandSpec",
+ sep = ",")
+
+c_res_for_outliers <- c_pcaSpectra(PCAoutliers,
+                                   choice = "noscale")
+c_res_for_outliers
+
+#Establish threshold for outliers
+
+threshold1 <- 6 * sd(c_res_for_outliers$x[, 1])
+threshold2 <- 6 * sd(c_res_for_outliers$x[, 2])
+
+threshold <- max(threshold1, threshold2)
+
+#Plot scores again with thresholds
+p<- plotScores(PCAoutliers, c_res_for_outliers,
+            main = myt,
+            pcs = c(1,2),
+            ellipse = "rob",
+            tol = 0.01)
+
+p <- p + geom_hline(yintercept = threshold, linetype = "dashed", color = "red") +
+ geom_vline(xintercept = threshold, linetype = "dashed", color = "red") +
+ ggtitle("Meridian Sandstone - Tallahatta [MER]") +
+ theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+print(p)
+```
+
+Group 9: AGATE
+```{r}
+PCAoutliers <- matrix2SpectraObject(
+ gr.crit = c("AGATE"), #this line to change
+ gr.cols = color6[3], #kept red for transparency
+ freq.unit = "micrometer",
+ int.unit = "Reflectance",
+ descrip = "Artifacts",
+ in.file = "AGATE.csv", #this line to change
+ out.file = "inlandSpec",
+ sep = ",")
+
+c_res_for_outliers <- c_pcaSpectra(PCAoutliers,
+                                   choice = "noscale")
+c_res_for_outliers
+
+#Establish threshold for outliers
+
+threshold1 <- 6 * sd(c_res_for_outliers$x[, 1])
+threshold2 <- 6 * sd(c_res_for_outliers$x[, 2])
+
+threshold <- max(threshold1, threshold2)
+
+#Plot scores again with thresholds
+p<- plotScores(PCAoutliers, c_res_for_outliers,
+            main = myt,
+            pcs = c(1,2),
+            ellipse = "rob",
+            tol = 0.01)
+
+p <- p + geom_hline(yintercept = threshold, linetype = "dashed", color = "red") +
+ geom_vline(xintercept = threshold, linetype = "dashed", color = "red") +
+ ggtitle("Agate - Tallahatta/Coastal Plain [AGATE]") +
+ theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+print(p)
+```
+### FINISHED WITH OUTLIER IDENTIFICATION ###
+
+## At present appears only two outliers from the initial establishment of the outliers
+# First I will run LDA using the outlier IDs with removed stamples (n=282)(PCA1&2 = ~59%) then vs. samples not removed (n=284)(PCA1&2 = ~77%)
+
+####Option 1 ####
+#inland_df_trans.csv is the dataset with all samples not removed (n=284)(PCA1&2 = ~77%)
+
+####Option 2 ####
+#inland_df_trans_rm_outliers.csv is the dataset with 2 samples removed using 6 sd from mean (n=282)(PCA1&2 = ~59%)
+# Then see which LDA scores and random forest (RF) results on the unknowns are better
+#Lets begin with the outlier removed dataset (Option 2) to view a dendrogram of the existing PCA with outliers removed, corrected spectra using ChemoSpec package
+```{r}
+#before import data into SpectraObject remove the outliers
+#change to inland_df_trans2.csv (the original was inland_df_trans.csv)
+
+inlandSpec2 <- matrix2SpectraObject(
+  gr.crit = c("PW","HQ","PSS","JSS","MSS1","MSS2","HMCSS","MER","AGATE"),
+  gr.cols = color6,
+  freq.unit = "micrometer",
+  int.unit = "Reflectance",
+  descrip = "Artifacts",
+  in.file = "inland_df_trans_rm_outliers.csv",
+  out.file = "inlandSpec2",
+  sep = ","
+)
+
+sumSpectra(inlandSpec2)
+
+myt <- expression(
+  bolditalic(Source)~
+    bolditalic(Samples)~
+    bolditalic(Spectra))
+
+plotSpectra(inlandSpec2,
+            main = myt,
+            which = c(1,200),
+            yrange = c(-0.0001, 0.0001),
+            offset = 0.00001,
+            lab.pos = 1000)
+
+surveySpectra(inlandSpec2,
+              method = "iqr",
+              main = "EDA",
+              by.gr = TRUE,
+              xlim = c(350, 15400))
+
+surveySpectra(inlandSpec2,
+              method = "iqr",
+              main = "EDA_all group",
+              by.gr = FALSE,
+              xlim = c(350, 15400))
+
+HCA <- hcaSpectra(inlandSpec2, main = myt) 
+
+c_res <- c_pcaSpectra(inlandSpec2,
+                      choice = "noscale")
+
+plotScores(inlandSpec2, c_res,
+           main = myt,
+           pcs = c(1,2),
+           ellipse = "rob",
+           tol = 0.01)
+
+```
+
+#Be sure to transpose and return data from inland_df_trans_rm_outliers.csv back to original form
+
+```{r}
+#inland_df 
+inland_df_trans_rm_outliers_NEW <- as.data.frame(t(inland_df_trans_rm_outliers))
+write.csv(inland_df_trans_rm_outliers_NEW, file = "inland_df_trans_rm_outliers_NEW.csv", row.names = TRUE)
+```
+#be sure to remove added row V1, V2, V3, and delete CODE name from first column excel cell and leave blank. Add another column and change ID from blank to something called 'Group' for each raw material group, then line up each cell to correspong to group. LDA is kinda annoying in that it prefers when you use a number rather than a name
+
+# Download required packages 
+```{r}
+library(bootPLS)
+library(tidyverse)
+library(dplyr)
+library(caret)
+library(MASS)
+library(glmnet)
+library(ellipse)
+library(rlang)
+library(mixOmics)
+library(BiocManager)
+library(readr)
+##Additional packages you may need are the following and you may download them as such 
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#  install.packages("BiocManager")
+#library(BiocManager)
+#BiocManager::install("mixOmics")
+#library(mixOmics)
+#install.packages("rlang")
+```
+# Anytime your console (the screen south on the left of bottom left screen where you type code)type the following on PC or MAC ctrl + L
+
+# Below is what you do for the scaling of the dataframe to get it out of exp notation
+# be  sure to change this accordingly to match columns and remove them as this will likely be different every time! 
+# when in doubt check r environment to top right'
+
+# again the above line removes the factor column (your raw material group names column)
+```{r}
+df <- read.csv("inland_df_trans_rm_outliers_NEW.csv")
+df$Group <- as.factor(df$Group)
+df.scale.p <- df[,3:3049]
+df.s <- df.scale.p * 1000000 # this takes it out of exponential notation and converts to decimal
+df.m <- bind_cols(df["Group"], df.s) # This recombines them into a new df called df.m 
+```
+#save .csv of df.m for RF and for future LDA post LASSO removal
+
+#I call it df.m1.csv as I will do same thing for another df.m with the non-outlier removed dataset
+```{r}
+write.csv(df.m, file = "df.m1.csv", row.names = TRUE)
+```
+#examples for training testing partitioning. Default is Pareto Partition (80/20 Split)
+# Change p = 0.8, to p = 0.7 for 70/30 , p = 0.6 for 60/40 partition, etc
+```{r}
+df <- read.csv("df.m1.csv")
+df$Group <- as.factor(df$Group)
+tibble(df)
+
+training.samples <- df$Group %>%
+  createDataPartition(p = 0.8, list = FALSE)
+
+train.data <- df[training.samples,]
+test.data <- df[-training.samples,]
+tibble(train.data)
+```
+# training dataset is 229 & test dataset is 53
+```{r}
+# Fit the model DFA/LDA
+
+model.train <- lda(Group~., data = train.data) 
+
+# for training dataset( 80 %)
+
+# OR
+
+model.test <- lda(Group~., data = test.data) 
+
+model.train
+
+
+model.test
+
+attributes(model.test)
+```
+#model.test
+#Proportion of trace:
+#  LD1    LD2    LD3    LD4    LD5    LD6    LD7    LD8 
+#0.5524 0.1441 0.1021 0.0644 0.0492 0.0376 0.0321 0.0181 
+
+#model.train
+#Proportion of trace:
+# LD1    LD2    LD3    LD4    LD5    LD6    LD7    LD8 
+0.5362 0.1877 0.0921 0.0579 0.0452 0.0368 0.0265 0.0175 
+
+```{r}
+# Make Predictions using the model on the test dataset
+
+predictions <- model.test %>% predict(test.data)
+
+#predictions$posterior
+
+p.group <- predictions$class
+
+p.test <- cbind(p.group, test.data)
+
+# Model accuracy evaluation
+#predictions$class == test.transformed$Group
+
+mean(predictions$class==test.data$Group)
+
+# prediction accuracy for test data is between  67.92453 % to 81.13 % using the test dataset with two outliers removed but before using LASSO for the training data
+# I ended up choosing the dataset with the lower test accuracy rather than higher
+```
+
+```{r}
+# combines predictions and LDA scores
+lda.data <- cbind(test.data, predict(model.test)$x)
+head(lda.data)
+tibble(lda.data)
+
+#plots results without ellipsoids
+ggplot(lda.data, aes(LD1, LD2)) +
+  geom_point(aes(color = Group))
+
+# Call:
+# lda(Group ~ ., data = test.data)
+
+# Prior probabilities of groups:
+#         1          2          3          4          5          6          7          8          9 
+# 0.11320755 0.11320755 0.11320755 0.09433962 0.11320755 0.11320755 0.13207547 0.09433962 0.11320755
+
+#Proportion of trace:
+#   LD1    LD2    LD3    LD4    LD5    LD6    LD7    LD8 
+# 0.4956 0.1890 0.1073 0.0849 0.0479 0.0279 0.0256 0.0218 
+```
+```{r}
+datPred <-data.frame(Group = predict(model.test)$class,
+                    predict(model.test)$x)
+
+dat_ell <- data.frame()
+
+for(g in levels(datPred$Group)){
+  dat_ell <- rbind(dat_ell, 
+                   cbind(as.data.frame(with(datPred[datPred$Group == g,], 
+                   ellipse(cor(LD1, LD2), centre=c(mean(LD1),mean(LD2))))),
+                   Group=g))}
+
+ggplot(datPred, aes(x=LD1, y=LD2, col=Group) ) + 
+  geom_point( size = 0.5, aes(color = Group))+theme_bw()+
+  geom_path(data=dat_ell,aes(x=x,y=y,color=Group),size=0.3,linetype=1) 
+```
+## To see how it actually looks use examples from Dr. Kwons code: https://rpubs.com/youngclick/747824
+
+#Balanaced Accuracy using Confusion Matrix and estimating the test errior using leave-one-out cross validation by specifying CV=T
+## This is because sometimes there may not be enough data to split into a training and test sample however the simplest and most widely used method for estimating prediction errors is cross validation
+
+#Balanced acccuracy of Training Data using confusion matrix (training error)
+```{r}
+lda_model.train <- lda(Group~., data = train.data, CV=T) 
+conf <- table(list(predicted=lda_model.train$class, observed=train.data$Group))
+conf
+```
+#We can calculate the categorical accuracy measures using simple matrix arithmetic for  the training error(80% of data)
+```{r}
+diag(conf) / rowSums(conf)
+#Precision (Positive Predicted Values)
+```
+#Alternatively, Caret package includes functionality that makes this easier:
+```{r}
+confusionMatrix(conf)
+```
+#Balanced acccuracy of Test Data using confusion matrix (test error)
+```{r}
+lda_model <- lda(Group~., data = test.data, CV=T) 
+conf2 <- table(list(predicted=lda_model$class, observed=test.data$Group))
+caret::confusionMatrix(conf2)
+```
+#3-D visualization of the data using the LDA scores extracted by lda.data and then redownloaded as separate dataset
+```{r}
+#Upload packages
+
+library(scatterplot3d)
+
+#Use new dataset. When you combine the LDA data scores at the end of the data, you can generate a 3-D plot of the test.data
+#we will do this for the Hattiesburg orthoquartzite (quartz sandstone) & for the Tallahatta, right now each is an individual GROUP1-9
+
+df.m <- read.csv("lda.scraped.csv")
+df.m$Group <- as.factor(df.m$Group)
+
+#Add color palette again
+color6 <- Polychrome::palette36.colors(n = 27)
+colors <- color6
+
+#below if need to remove added columns "X"
+df.m <- df.m[,2:10]
+head(df.m)
+
+scatterplot3d(df.m[,1:3])
+
+#Change angles
+scatterplot3d(df.m[,1:3], angle = 55)
+
+scatterplot3d(df.m[,1:3],
+  main="3D Scatter Plot test.data LDA",
+  xlab = "LD3",
+  ylab = "LD1",
+  zlab = "LD2")
+
+#Add by shape
+shapes = c(16, 17, 18, 19) 
+shapes <- shapes[as.numeric(df.m$Group)]
+scatterplot3d(df.m[,1:3], pch = shapes)
+
+#Change by color per group
+color6 <- Polychrome::palette36.colors(n = 27)
+colors <- color6
+df.m$Group <- as.factor(df.m$Group)
+#dont forget to make sure it is a facotr before using as.numeric
+colors <- colors[as.numeric(df.m$Group)]
+scatterplot3d(df.m[,1:3], pch = 16, color=colors)
+
+#Change global appearance of the graph [removes the top black line & box above plot]
+scatterplot3d(df.m[,1:3], pch = 16, color = colors,
+              grid=TRUE, box=FALSE)
+
+#Add legend (will add back on top box)
+s3d <- scatterplot3d(df.m[,1:3], pch = 16, color=colors)
+legend("topleft", legend = levels(df.m$Group),
+      col =  color6, pch = 16)
+
+#To remove top bar and keep legend in top left use the following
+s3d <- scatterplot3d(df.m[, 1:3], pch = 16, color = colors,
+                     main = "3D Scatter Plot test.data LDA",
+                     xlab = "LD3",
+                     ylab = "LD1",
+                     zlab = "LD2",
+                     grid = TRUE,
+                     box = FALSE)
+
+# Adding legend
+legend("topleft", legend = levels(df.m$Group),
+       col = color6, pch = 16)
+```
+### least absolute selection and separation operation (LASSO) ### 
+
+```{r}
+# use x.train & y.train as vector
+
+x.train <- data.matrix(train.data[,2:3048])
+y.train <- train.data$Group
+
+unique(y.train)
+```
+```{r}
+# LASSO Here
+fit.lasso <- glmnet(x.train, y.train, family = "multinomial", 
+                    type.multinomial = "grouped")
+
+plot(fit.lasso, xvar = "lambda", label = TRUE, type.coef = "2norm")
+
+cvfit=cv.glmnet(x.train, y.train, family="multinomial", 
+                type.multinomial = "grouped", nfolds = 5)
+plot(cvfit)
+```
+
+# Below gives your sensitivity threshold(neither good or bad) and your # of parsimonious bands
+```{r}
+lambda.min <- cvfit$lambda.min
+
+lambda.min
+
+fit.lasso.best <- glmnet(x.train, y.train, family = "multinomial", 
+                         type.multinomial = "grouped", lambda = lambda.min)
+a = coef(fit.lasso.best)
+b = as.matrix(a)
+
+tmp_coeffs <- coef.glmnet(fit.lasso, lambda.min)
+
+#tmp_coeffs <- coef.glmnet(fit.lasso)
+df.coef <- data.frame(name = tmp_coeffs[[1]]@Dimnames[[1]][tmp_coeffs[[1]]@i + 1], 
+                      coefficient = tmp_coeffs[[1]]@x)
+# creates data file in .csv format called df.coef for coefficients and most parsimonious bands, in this case 195
+```
+#Time to remove excess wavelengths and add back data
+```{r}
+write.csv(df.coef, file = "df.coef.csv", row.names = TRUE)
+#Dont forget to tack on unknowns to your lasso removed
+```
+#Two new datasets, one is LASSO_NO.csv which is the data without uknowns and just the references of 190 most parsimonous spectra bands for 4 Groups not 9
+### Other dataset is LASSO_190.csv which has tacked-on unknowns for predictions
+
+#for prediction accuracy use balanced accuracy as well as test.data mean-predictions
+
+```{r}
+df <- read.csv("LASSO_NO.csv")
+df$Group <- as.factor(df$Group)
+df.scale.p <- df[,2:191]
+df.s <- df.scale.p * 1000000 # this takes it out of exponential notation and converts to decimal
+df.m <- bind_cols(df["Group"], df.s) # This recombines them into a new df called df.m 
+
+#this time you will want to save the boosted dataset with unknowns so you dont have to post-process anything for Random Forest
+```
+#save .csv of df.m for RF and for future LDA post LASSO removal
+
+#I call it df.m1.csv as I will do same thing for another df.m with the non-outlier removed dataset
+```{r}
+write.csv(df.m, file = "df.m1.csv", row.names = TRUE)
+```
+#examples for training testing partitioning. Default is Pareto Partition (80/20 Split)
+# Change p = 0.8, to p = 0.7 for 70/30 , p = 0.6 for 60/40 partition, etc
+```{r}
+tibble(df.m)
+training.samples <- df.m$Group %>%
+  createDataPartition(p = 0.8, list = FALSE)
+
+train.data <- df.m[training.samples,]
+test.data <- df.m[-training.samples,]
+tibble(train.data)
+tibble(test.data)
+
+```
+# training dataset is 229 & test dataset is 53
+```{r}
+# Fit the model DFA/LDA
+model.train <- lda(Group~., data = train.data) # for training dataset( 80 %)
+
+# OR
+model.test <- lda(Group~., data = test.data) 
+
+model.train
+
+model.test
+
+attributes(model.test)
+```
+
+```{r}
+predictions <- model.test %>% predict(test.data)
+
+#predictions$posterior
+
+p.group <- predictions$class
+
+p.test <- cbind(p.group, test.data)
+
+# Model accuracy evaluation
+#predictions$class == test.transformed$Group
+
+mean(predictions$class==test.data$Group)
+```
+#This means  that the model accuracy improves to 98.14% from original 67%! 
+
+#Now lets check for balanced accuracy, again
+```{r}
+#Balanced acccuracy of Training Data using confusion matrix (training error)
+lda_model.train <- lda(Group~., data = train.data, CV=T) 
+conf <- table(list(predicted=lda_model.train$class, observed=train.data$Group))
+conf
+```
+#We can calculate the categorical accuracy measures using simple matrix arithmetic for  the training error(80% of data)
+
+```{r}
+diag(conf) / rowSums(conf)
+#Precision (Positive Predicted Values)
+```
+#Alternatively, Caret package includes functionality that makes this easier:
+
+```{r}
+confusionMatrix(conf)
+```
+
+
+#Balanced acccuracy of Test Data using confusion matrix (test error)
+```{r}
+lda_model <- lda(Group~., data = test.data, CV=T) 
+conf2 <- table(list(predicted=lda_model$class, observed=test.data$Group))
+caret::confusionMatrix(conf2)
+```
+```
+#Balanced Accuracy accuracy using cross-validation states it is 27.78% for test.data compared to the 98% from just the test.data in LDA
+
+```{r}
+#combines predictions and LDA scores
+
+lda.data <- cbind(test.data, predict(model.test)$x)
+head(lda.data)
+tibble(lda.data)
+
+#plots results without ellipsoids in 2-Dimension
+
+ggplot(lda.data, aes(LD1, LD2)) +
+  geom_point(aes(color = Group))
+
+datPred <-data.frame(Group = predict(model.test)$class,
+                    predict(model.test)$x)
+                    
+dat_ell <- data.frame()
+
+for(g in levels(datPred$Group)){
+  dat_ell <- rbind(dat_ell, 
+                   cbind(as.data.frame(with(datPred[datPred$Group == g,], 
+                   ellipse(cor(LD1, LD2), centre=c(mean(LD1),mean(LD2))))),
+                   Group=g))}
+
+ggplot(datPred, aes(x=LD1, y=LD2, col=Group) ) + 
+  geom_point( size = 0.5, aes(color = Group))+theme_bw()+
+  geom_path(data=dat_ell,aes(x=x,y=y,color=Group),size=0.3,linetype=1) 
+
+# Now extract the .csv file using write.csv function and then remove all columns but last three as there are Four Groups [because we have 4 groups minus 1] to view the test.data (98%)
+## This so we can view things in 3-D (scatterplot3d) not just 2-D
+
+write.csv(lda.data, file = "df.x.csv", row.names = TRUE)
+#new df is df.x 
+
+df.x <- read.csv("df.x.csv")  
+df.x$Group <- as.factor(df.x$Group)
+
+#Add color palette again
+color6 <- Polychrome::palette36.colors(n = 27)
+colors <- color6
+
+head(df.x)
+
+scatterplot3d(df.x[,1:3])
+
+
+scatterplot3d(df.x[,1:3],
+  main="3D LDA Post LASSO 190 spectra",
+  xlab = "LD3",
+  ylab = "LD1",
+  zlab = "LD2")
+
+#Change by color per group
+colors <- colors[as.numeric(df.x$Group)]
+scatterplot3d(df.x[,1:3], pch = 16, color=colors)
+
+#Change global appearance of the graph [removes the top black line & box above plot]
+scatterplot3d(df.x[,1:3], pch = 16, color = colors,
+              grid=TRUE, box=FALSE)
+
+#Add legend (will add back on top box)
+s3d <- scatterplot3d(df.x[,1:3], pch = 16, color=colors)
+legend("topleft", legend = levels(df.x$Group),
+      col =  color6, pch = 16)
+
+#To remove top bar and keep legend in top left use the following
+s3d <- scatterplot3d(df.x[, 1:3], pch = 16, color = colors,
+                     main = "3D LDA Post-LASSO",
+                     xlab = "LD3",
+                     ylab = "LD1",
+                     zlab = "LD2",
+                     grid = TRUE,
+                     box = FALSE)
+
+# Adding legend
+legend("topleft", legend = levels(df.x$Group),
+       col = color6, pch = 16)
+```
+
+```{r}
+df <- read.csv("LASSO_191.csv")
+df$Group <- as.factor(df$Group)
+df.scale.p <- df[,2:191]
+df.s <- df.scale.p * 1000000 # this takes it out of exponential notation and converts to decimal
+df.m <- bind_cols(df["Group"], df.s) # This recombines them into a new df called df.m 
+
+#save for RF later in next step
+write.csv(df.m, file = "df.z.csv", row.names = TRUE)
+
+df.z <- read.csv("df.z.csv")
+df.z$Group <- as.factor(df.z$Group)
+
+tibble(df.z)
+
+model.4 <- lda(Group~., data = df.z)
+
+class(model.4)
+
+# Make predictions
+predictions <- model.4 %>% predict(df.z)
+predictions$posterior
+p.group <- predictions$class
+p.group
+tibble(df.z)
+p.test <- cbind(p.group, df.z)
+tibble(p.test)
+
+#export p.test combined to LDA scores for other figures/etc
+
+lda.data.4 <- cbind(p.test, predictions$x)
+
+#write .csv
+write.csv(lda.data.4, file = "lda.data.4.csv", row.names = TRUE)
+```
+#Now test out LDA post-LASSO in 3-D
+```{r}
+df.y <- read.csv("lda.data.x.csv")
+df.y$Group <- as.factor(df.y$Group)
+
+color6 <- Polychrome::palette36.colors(n = 27)
+colors <- color6
+
+head(df.y)
+
+scatterplot3d(df.y[,1:3])
+
+scatterplot3d(df.y[,1:3],
+  main="3D LDA Post LASSO 190 spectra",
+  xlab = "LD3",
+  ylab = "LD1",
+  zlab = "LD2")
+
+#Change by color per group
+colors <- colors[as.numeric(df.y$Group)]
+scatterplot3d(df.y[,1:3], pch = 16, color=colors)
+
+#Change global appearance of the graph [removes the top black line & box above plot]
+scatterplot3d(df.y[,1:3], pch = 16, color = colors,
+              grid=TRUE, box=FALSE)
+
+#Add legend (will add back on top box)
+s3d <- scatterplot3d(df.y[,1:3], pch = 16, color=colors)
+legend("topleft", legend = levels(df.y$Group),
+      col =  color6, pch = 16)
+
+#To remove top bar and keep legend in top left use the following
+s3d <- scatterplot3d(df.y[, 1:3], pch = 16, color = colors,
+                     main = "3D LDA Post-LASSO",
+                     xlab = "LD3",
+                     ylab = "LD1",
+                     zlab = "LD2",
+                     grid = TRUE,
+                     box = FALSE)
+
+# Adding legend
+legend("topleft", legend = levels(df.y$Group),
+       col = color6, pch = 16)
+```
+#Now time for random forest for the four groups
+#Use df.z.csv for random forest
+```{r}
+### Install upload required packages
+library(randomForest)
+library(datasets)
+library(caret)
+library(dplyr)
+```
+
+```{r}
+input_data <- read.csv("df.z.csv")
+
+nrow(input_data)
+str(input_data)
+input_data$Group <- as.factor(input_data$Group)
+
+data.t <- input_data %>% filter(!is.na(Group))
+data.p <- input_data %>% filter(is.na(Group))
+
+nrow(data.t) #only reference data
+nrow(data.p) #only artifacts (unknown)
+
+# below is training and testing partitioning 80/20 
+
+set.seed(222)
+ind <- sample(2, nrow(data.t), replace = TRUE, prob = c(0.8, 0.2))
+
+table(ind)
+train <- data.t[ind==1,]
+test <- data.t[ind==2,]
+head(train)
+nrow(train)
+
+#random forest in R
+###The code rf.p <- randomForest(Group~., data=train, proximity=TRUE) trains a random forest classifier 
+##on a dataset train with a binary response variable named Group using the randomForest package in R.
+
+rf.p <- randomForest(Group~., data=train, proximity=TRUE) 
+
+# Build the random forest model
+rf.kf <- randomForest(Group~., data=train, keep.forest = TRUE) #re
+
+# Observe two rf models
+
+rf.p
+rf.kf
+
+# Generate predictions for the training set and evaluate the accuracy
+p1 <- predict(rf.kf, train)
+confusionMatrix(p1,train$Group)
+
+# Generate class probabilities for the training set
+p2 <- predict(rf.kf, train, type = 'prob')
+nrow(p2)
+p2
+
+# Generate class probabilities and predictions for the testing set
+p2.test <- predict(rf.kf, test, type = 'prob')
+p2.test
+p2.confusion <- predict(rf.kf, test)
+p2.confusion
+confusionMatrix(p2.confusion,test$Group)
+```
+#Above the test accuracy for the test.data is 95.45%, P-value of 1.88e-07, kappa : 0.917 , Balanced Accuracy was
+#                      Class: 1 Class: 2 Class: 3 Class: 4
+# Balanced Accuracy      1.0000   0.8571   0.9412  1.00000
+
+```{r}
+# for knowns and unknowns
+
+p3 <- predict(rf.kf, newdata = data.p, type = 'prob') # for my data
+
+p3.a <- predict(rf.kf, data.p)
+
+# merge dfs
+p3.bind <- cbind(p3.a,p3)
+
+# Write CSV for RF results
+write.csv(p3.bind, file = "random.forest.4.csv", row.names = TRUE)
+```
+#Below is Variable importance for RF Analysis post LASSO using 4 Groups
+```{r}
+# Variable importance
+varImpPlot(rf.kf,
+           sort = T,
+           n.var = 30,
+           main = "Variable Importance")
+
+ip <- importance(rf.kf)
+str(ip)
+ip.df <- as.data.frame(ip)
+head(ip.df)
+ip.df <- ip.df %>% arrange(-MeanDecreaseGini)
+head(ip.df)
+
+#Print and export id.df
+write.csv(ip.df, file = "ip.df.csv", row.names = TRUE)
+```
+#Now it is time to repeat many of the above steps between lines 645-1294
+```{r}
+df <- read.csv("Lasso_No_7.csv")
+df$Group <- as.factor(df$Group)
+
+df.scale.p <- df[,2:3048]
+df.s <- df.scale.p * 1000000 # conversion from exponential notation and converts to decimal
+df.m <- bind_cols(df["Group"], df.s) #recombines
+```
+#save .csv of df.m for RF and for future LDA post LASSO removal
+#Partition dataset again for seven sandstone and quartz sandstone groups
+```{r}
+training.samples <- df.m$Group %>%
+  createDataPartition(p = 0.8, list = FALSE)
+
+train.data <- df.m[training.samples,]
+test.data <- df.m[-training.samples,]
+
+tibble(train.data)
+
+model.test <- lda(Group~., data = test.data) 
+model.test
+attributes(model.test)
+
+predictions <- model.test %>% predict(test.data) #make predictions
+p.group <- predictions$class
+p.test <- cbind(p.group, test.data)
+
+mean(predictions$class==test.data$Group) # Model accuracy evaluation
+```
+# 0.804878 test data accuracy, now time for LASSO
+
+#Balanced Accuracy of test dataset (20%)
+```{r}
+lda_model <- lda(Group~., data = test.data, CV=T) 
+conf2 <- table(list(predicted=lda_model$class, observed=test.data$Group))
+caret::confusionMatrix(conf2)
+```
+#test.data of seven sandstone groups is 26.83% using cross-validation
+#Kappa: 0.1435
+#                       Class: 1 Class: 2 Class: 3 Class: 4 Class: 5 Class: 6 Class: 7
+# Sensitivity           0.50000  0.00000  0.20000  0.16667  0.16667  0.57143  0.20000
+# Specificity           0.85714  0.88571  0.94444  0.85714  0.91429  0.85294  0.83333
+# Pos Pred Value        0.37500  0.00000  0.33333  0.16667  0.25000  0.44444  0.14286
+# Neg Pred Value        0.90909  0.83784  0.89474  0.85714  0.86486  0.90625  0.88235
+# Prevalence            0.14634  0.14634  0.12195  0.14634  0.14634  0.17073  0.12195
+# Detection Rate        0.07317  0.00000  0.02439  0.02439  0.02439  0.09756  0.02439
+# Detection Prevalence  0.19512  0.09756  0.07317  0.14634  0.09756  0.21951  0.17073
+# Balanced Accuracy     0.67857  0.44286  0.57222  0.51190  0.54048  0.71218  0.51667
+```{r}
+# plot data 2-D
+
+lda.data <- cbind(test.data, predict(model.test)$x)
+
+# using the below to subset the outlier
+ggplot(lda.data, aes(LD1, LD2)) +
+  geom_point(aes(color = Group))
+
+# To observe the data using ellipses use  the following code
+
+datPred <-data.frame(Group = predict(model.test)$class,
+                    predict(model.test)$x)
+
+dat_ell <- data.frame()
+
+for(g in levels(datPred$Group)){
+  dat_ell <- rbind(dat_ell, 
+                   cbind(as.data.frame(with(datPred[datPred$Group == g,], 
+                   ellipse(cor(LD1, LD2), centre=c(mean(LD1),mean(LD2))))),
+                   Group=g))}
+
+ggplot(datPred, aes(x=LD1, y=LD2, col=Group) ) + 
+  geom_point( size = 0.5, aes(color = Group))+theme_bw()+
+  geom_path(data=dat_ell,aes(x=x,y=y,color=Group),size=0.3,linetype=1) 
+```
+### LASSO ###
+```{r}
+x.train <- data.matrix(train.data[,2:3048])
+y.train <- train.data$Group
+
+unique(y.train) #total 21 classes or Groups
+
+# LASSO Here
+fit.lasso <- glmnet(x.train, y.train, family = "multinomial", 
+                    type.multinomial = "grouped")
+
+plot(fit.lasso, xvar = "lambda", label = TRUE, type.coef = "2norm")
+
+cvfit=cv.glmnet(x.train, y.train, family="multinomial", 
+                type.multinomial = "grouped", nfolds = 5)
+
+plot(cvfit)
+
+# Below gives your sensitivity threshold(neither good or bad) and your # of parsimonious bands
+
+lambda.min <- cvfit$lambda.min
+fit.lasso.best <- glmnet(x.train, y.train, family = "multinomial", 
+                         type.multinomial = "grouped", lambda = lambda.min)
+
+a = coef(fit.lasso.best)
+b = as.matrix(a)
+
+tmp_coeffs <- coef.glmnet(fit.lasso, lambda.min)
+
+#tmp_coeffs <- coef.glmnet(fit.lasso)
+df.coef <- data.frame(name = tmp_coeffs[[1]]@Dimnames[[1]][tmp_coeffs[[1]]@i + 1], 
+                      coefficient = tmp_coeffs[[1]]@x)
+
+write.csv(df.coef, file = "df.coeff.sand.csv", row.names = TRUE)
+```
+#Extract the 179 spectra from LASSO for the 7 Groups Sandstone
+```{r}
+df.c <- read.csv("df.c.csv")
+df.c$Group <- as.factor(df.c$Group)
+
+df.scale.p <- df.c[,2:180]
+df.s <- df.scale.p * 1000000 # conversion from exponential notation and converts to decimal
+df.m <- bind_cols(df.c["Group"], df.s) #recombines
+
+data.t <- df.m %>% filter(!is.na(Group))
+data.p <- df.m %>% filter(is.na(Group))
+
+training.samples <- data.t$Group %>%
+  createDataPartition(p = 0.8, list = FALSE)
+
+train.data <- data.t[training.samples,] #Reference samples
+test.data <- data.t[-training.samples,] #Artifacts/Known samples for classification
+
+tibble(test.data)
+
+model.test <- lda(Group~., data = test.data) 
+model.test
+
+attributes(model.test)
+
+predictions <- model.test %>% predict(test.data) #make predictions
+p.group <- predictions$class
+p.test <- cbind(p.group, test.data)
+
+mean(predictions$class==test.data$Group) # Model accuracy evaluation
+```
+# Accuracy of test dataset = 0.8536585
+#Balanced Accuracy below
+```{r}
+lda_model <- lda(Group~., data = test.data, CV=T) 
+conf2 <- table(list(predicted=lda_model$class, observed=test.data$Group))
+caret::confusionMatrix(conf2)
+```
+#                       Class: 1 Class: 2 Class: 3 Class: 4 Class: 5 Class: 6 Class: 7
+# Sensitivity           0.00000  0.16667  0.00000   0.0000   0.0000  0.28571  0.20000
+# Specificity           0.91429  0.94286  0.91667   0.7429   0.7429  0.82353  0.86111
+# Pos Pred Value        0.00000  0.33333  0.00000   0.0000   0.0000  0.25000  0.16667
+# Neg Pred Value        0.84211  0.86842  0.86842   0.8125   0.8125  0.84848  0.88571
+# Prevalence            0.14634  0.14634  0.12195   0.1463   0.1463  0.17073  0.12195
+# Detection Rate        0.00000  0.02439  0.00000   0.0000   0.0000  0.04878  0.02439
+# Detection Prevalence  0.07317  0.07317  0.07317   0.2195   0.2195  0.19512  0.14634
+# Balanced Accuracy     0.45714  0.55476  0.45833   0.3714   0.3714  0.55462  0.53056
+```{r}
+tibble(df.m)
+
+model.sand <- lda(Group~., data = df.m)
+
+class(model.sand)
+
+predictions <- model.sand %>% predict(df.m)
+predictions$posterior
+p.group <- predictions$class
+p.group
+tibble(df.m)
+p.test <- cbind(p.group, df.m)
+tibble(p.test)
+
+lda.data.sand <- cbind(p.test, predictions$x) 
+
+#write .csv
+write.csv(lda.data.sand, file = "lda.data.sand.csv", row.names = TRUE)
+```
+#3-D plots for 7 sandstone groups
+```{r}
+df.m <- read.csv("lda.sand.csv")
+df.m$Group <- as.factor(df.m$Group)
+
+color6 <- Polychrome::palette36.colors(n = 27)
+colors <- color6
+
+head(df.m)
+
+scatterplot3d(df.m[,1:3])
+
+scatterplot3d(df.m[,1:3],
+  main="3D LDA Post LASSO 179 spectra",
+  xlab = "LD3",
+  ylab = "LD1",
+  zlab = "LD2")
+
+#Change by color per group
+colors <- colors[as.numeric(df.m$Group)]
+scatterplot3d(df.m[,1:3], pch = 16, color=colors)
+
+#Change global appearance of the graph [removes the top black line & box above plot]
+scatterplot3d(df.m[,1:3], pch = 16, color = colors,
+              grid=TRUE, box=FALSE)
+
+#Add legend (will add back on top box)
+s3d <- scatterplot3d(df.m[,1:3], pch = 16, color=colors)
+legend("topleft", legend = levels(df.m$Group),
+      col =  color6, pch = 16)
+
+#To remove top bar and keep legend in top left use the following
+s3d <- scatterplot3d(df.m[, 1:3], pch = 16, color = colors,
+                     main = "3D LDA Post-LASSO",
+                     xlab = "LD3",
+                     ylab = "LD1",
+                     zlab = "LD2",
+                     grid = TRUE,
+                     box = FALSE)
+
+# Adding legend
+legend("topright", legend = levels(df.m$Group),
+       col = color6, pch = 16)
+```
+#now for RF of seven sandstone groups
+```{r}
+input_data <- read.csv("df.m.sand.csv")
+
+nrow(input_data)
+str(input_data)
+input_data$Group <- as.factor(input_data$Group)
+
+data.t <- input_data %>% filter(!is.na(Group))
+data.p <- input_data %>% filter(is.na(Group))
+
+nrow(data.t) #only reference data
+nrow(data.p) #only artifacts (unknown)
+
+#training and testing partitioning 80/20 
+
+set.seed(222)
+ind <- sample(2, nrow(data.t), replace = TRUE, prob = c(0.8, 0.2))
+
+table(ind)
+train <- data.t[ind==1,]
+test <- data.t[ind==2,]
+head(train)
+nrow(train)
+
+rf.p <- randomForest(Group~., data=train, proximity=TRUE) 
+
+# Build the random forest model
+rf.kf <- randomForest(Group~., data=train, keep.forest = TRUE) #re
+
+rf.p
+rf.kf
+
+# Generate predictions for the training set and evaluate the accuracy
+p1 <- predict(rf.kf, train)
+confusionMatrix(p1,train$Group)
+
+# Generate class probabilities for the training set
+p2 <- predict(rf.kf, train, type = 'prob')
+nrow(p2)
+p2
+
+# Generate class probabilities and predictions for the testing set
+p2.test <- predict(rf.kf, test, type = 'prob')
+p2.test
+p2.confusion <- predict(rf.kf, test)
+p2.confusion
+confusionMatrix(p2.confusion,test$Group)
+
+# for knowns and unknowns
+
+p3 <- predict(rf.kf, newdata = data.p, type = 'prob') # for my data
+
+p3.a <- predict(rf.kf, data.p)
+
+# merge dfs
+p3.bind <- cbind(p3.a,p3)
+
+# Write CSV for RF results
+write.csv(p3.bind, file = "random.forest.sand.csv", row.names = TRUE)
+```
+# Statistics by Class:
+##                    Class: 1 Class: 2 Class: 3 Class: 4 Class: 5 Class: 6 Class: 7
+#Sensitivity            1.0000   0.6667   1.0000   1.0000   0.6667   1.0000  0.50000
+#Specificity            1.0000   0.9375   0.9677   1.0000   1.0000   0.9118  1.00000
+#Pos Pred Value         1.0000   0.6667   0.8750   1.0000   1.0000   0.5714  1.00000
+#Neg Pred Value         1.0000   0.9375   1.0000   1.0000   0.9412   1.0000  0.94444
+#Prevalence             0.1842   0.1579   0.1842   0.1053   0.1579   0.1053  0.10526
+#Detection Rate         0.1842   0.1053   0.1842   0.1053   0.1053   0.1053  0.05263
+#Detection Prevalence   0.1842   0.1579   0.2105   0.1053   0.1053   0.1842  0.05263
+#Balanced Accuracy      1.0000   0.8021   0.9839   1.0000   0.8333   0.9559  0.75000
+
+# Below is Variable importance for RF Analysis post LASSO using 4 Groups
+```{r}
+# Variable importance
+varImpPlot(rf.kf,
+           sort = T,
+           n.var = 30,
+           main = "Variable Importance")
+
+ip <- importance(rf.kf)
+str(ip)
+ip.df <- as.data.frame(ip)
+head(ip.df)
+ip.df <- ip.df %>% arrange(-MeanDecreaseGini)
+head(ip.df)
+
+#Print and export id.df
+write.csv(ip.df, file = "ip.df.sand.csv", row.names = TRUE)
+```
+# end of tutorial
