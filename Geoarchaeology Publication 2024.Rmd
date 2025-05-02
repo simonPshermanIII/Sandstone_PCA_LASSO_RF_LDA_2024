@@ -1,10 +1,13 @@
 ---
 title: "Geoarchaeology Sandstone Pub 2024"
-author: Simon P. Sherman III (Principal Investigator at Environmental Solutions
-  and Innovations, Inc. [ESI, Inc.])
+author: Simon P. Sherman III, PhD (Wash U Stl)
 date: "1/2/2024"
 additional authors: Dr. Youngsang Kwon (Department of Earth Sciences, University of
   Memphis)
+
+Note: Much of the LDA and LASSO came from the following tutorial : 
+https://rpubs.com/youngclick/747824
+
 output:
   pdf_document: default
   html_document: default
